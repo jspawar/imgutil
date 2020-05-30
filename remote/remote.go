@@ -442,6 +442,14 @@ func (i *Image) Delete() error {
 	return remote.Delete(ref, remote.WithAuth(auth))
 }
 
+func (i *Image) ConfigFile() (*v1.ConfigFile, error) {
+	return i.image.ConfigFile()
+}
+
+func (i *Image) Layers() ([]v1.Layer, error) {
+	return i.image.Layers()
+}
+
 type subImage struct {
 	img       v1.Image
 	topDiffID string

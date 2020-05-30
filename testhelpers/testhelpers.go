@@ -244,6 +244,82 @@ func writeTarSingleFileLinux(tw *tar.Writer, layerPath, txt string) error {
 	return nil
 }
 
+func AssertImageTarIsValidOCI(t *testing.T, actualTarballPath string) {
+	file, err := os.Open(actualTarballPath)
+	AssertNil(t, err)
+
+	headers := make(map[string]*bytes.Buffer)
+	tr := tar.NewReader(file)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		AssertNil(t, err)
+
+		buf := &bytes.Buffer{}
+		_, err = io.Copy(buf, tr)
+		AssertNil(t, err)
+
+		headers[hdr.Name] = buf
+	}
+
+	// validate `index.json` exists and looks valid
+	indexBuf, exists := headers["index.json"]
+	AssertEq(t, exists, true)
+	AssertNotEq(t, indexBuf, nil)
+
+	index, err := v1.ParseIndexManifest(indexBuf)
+	AssertNil(t, err)
+	AssertNotEq(t, index, nil)
+	AssertEq(t, len(index.Manifests), 1)
+	AssertEq(t, index.SchemaVersion, int64(2))
+
+	// TODO: add more mediatype assertions like everywhere
+	// validate manifest
+	manifestDescriptor := index.Manifests[0]
+	manifestDigest := manifestDescriptor.Digest
+	manifestFileName := fmt.Sprintf("blobs/%s/%s", manifestDigest.Algorithm, manifestDigest.Hex)
+
+	manifestBuf, exists := headers[manifestFileName]
+	AssertEq(t, exists, true)
+	AssertNotEq(t, manifestBuf, nil)
+
+	manifest, err := v1.ParseManifest(manifestBuf)
+	AssertNil(t, err)
+	AssertNotEq(t, manifest, nil)
+
+	AssertEq(t, manifest.SchemaVersion, int64(2))
+	AssertEq(t, len(manifest.Layers) > 0, true)
+
+	// validate config
+	configDescriptor := manifest.Config
+	configDigest := configDescriptor.Digest
+	configFileName := fmt.Sprintf("blobs/%s/%s", configDigest.Algorithm, configDigest.Hex)
+
+	configBuf, exists := headers[configFileName]
+	AssertEq(t, exists, true)
+	AssertNotEq(t, configBuf, nil)
+
+	config, err := v1.ParseConfigFile(configBuf)
+	AssertNil(t, err)
+	AssertNotEq(t, config, nil)
+
+	// validate layers
+	for _, layerDescriptor := range manifest.Layers {
+		layerDigest := layerDescriptor.Digest
+		layerFileName := fmt.Sprintf("blobs/%s/%s", layerDigest.Algorithm, layerDigest.Hex)
+
+		layerBuf, exists := headers[layerFileName]
+		AssertEq(t, exists, true)
+		AssertNotEq(t, layerBuf, nil)
+
+		// TODO: assert layer is a tarball or gzipped tarball
+	}
+
+	// validate `oci-layout` file exists
+}
+
 // WindowsBaseLayer returns a minimal windows base layer.
 // This base layer cannot use for running but can be used for saving to a Windows daemon and container creation.
 // Windows image layers must follow this pattern¹:
