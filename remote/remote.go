@@ -442,6 +442,7 @@ func (i *Image) Delete() error {
 	return remote.Delete(ref, remote.WithAuth(auth))
 }
 
+// TODO: which of these below need to stay?
 func (i *Image) ConfigFile() (*v1.ConfigFile, error) {
 	return i.image.ConfigFile()
 }
@@ -449,6 +450,13 @@ func (i *Image) ConfigFile() (*v1.ConfigFile, error) {
 func (i *Image) Layers() ([]v1.Layer, error) {
 	return i.image.Layers()
 }
+
+// TODO: return copy or pointer?
+func (i *Image) CopyOfV1Image() v1.Image {
+	return i.image
+}
+
+// TODO: which of these above need to stay?
 
 type subImage struct {
 	img       v1.Image

@@ -13,16 +13,26 @@ import (
 	"github.com/buildpacks/imgutil"
 	"github.com/buildpacks/imgutil/remote"
 	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/google/go-containerregistry/pkg/v1/types"
+)
+
+type LayoutImplementation int
+
+const (
+	OCIImageLayout = iota
+	DockerImageLayout
 )
 
 type Image struct {
 	baseImage   *remote.Image
 	tarballPath string
+	layoutImpl  LayoutImplementation
 }
 
-func NewImage(repoName string, keychain authn.Keychain, tarballPath string, ops ...remote.ImageOption) (imgutil.Image, error) {
+func NewImage(repoName string, keychain authn.Keychain, tarballPath string, layoutImplementation LayoutImplementation, ops ...remote.ImageOption) (imgutil.Image, error) {
 	i, err := remote.NewImage(repoName, keychain, ops...)
 	if err != nil {
 		return nil, err
@@ -37,13 +47,14 @@ func NewImage(repoName string, keychain authn.Keychain, tarballPath string, ops 
 	ti := &Image{
 		baseImage:   baseImage,
 		tarballPath: tarballPath,
+		layoutImpl:  layoutImplementation,
 	}
 
 	return ti, nil
 }
 
 func (i *Image) Name() string {
-	panic("not implemented") // TODO: Implement
+	return i.baseImage.Name()
 }
 
 func (i *Image) Rename(name string) {
@@ -102,54 +113,55 @@ func (i *Image) TopLayer() (string, error) {
 // Save saves the image as `Name()` and any additional names provided to this method.
 func (i *Image) Save(additionalNames ...string) error {
 	// TODO: add the `CreatedAt` info to various parts of config file
-
-	// 1. need an `index.json` file whose `manifests` key has one manifest item
-	//   - this one manifest item should reference our lone manifest
-	//   - `mediaType` needs to be set correctly
-	// 2. need a manifest file which will be saved as a blob itself
-	//   - should reference a single config file in `config` section
-	//   - should reference all the various layers composing the image
-	// 3. all of the following should be saved as blobs:
-	//   - manifest file
-	//   - config file
-	//   - each of the layer tarballs
-	// 4. put everything together as such: https://github.com/opencontainers/image-spec/blob/master/image-layout.md
-
 	tarFile, err := os.Create(i.tarballPath)
 	if err != nil {
 		return err
 	}
-	tarball := tar.NewWriter(tarFile)
+	tw := tar.NewWriter(tarFile)
 
-	// save blob of image config
-	configDescriptor, err := i.writeConfigFileToTarball(tarball)
-	if err != nil {
-		return err
+	// TODO: add some sort of flag to conditionally generate an Docker image tarball vs an OCI image tarball
+	if i.layoutImpl == DockerImageLayout {
+		ref, err := name.ParseReference(i.Name())
+		if err != nil {
+			return err
+		}
+		if err := tarball.WriteToFile(i.tarballPath, ref, i.baseImage.CopyOfV1Image()); err != nil {
+			return err
+		}
+		return nil
+	} else {
+		// TODO: use the write methods in the `layout` package of `go-containerregistry`
+		// save blob of image config
+		configDescriptor, err := i.writeConfigFileToTarball(tw)
+		if err != nil {
+			return err
+		}
+
+		// save blob of manifest
+		manifestDescriptor, err := i.writeManifestFileToTarball(tw, configDescriptor)
+		if err != nil {
+			return err
+		}
+
+		// save index file
+		indexManifest := &v1.IndexManifest{
+			SchemaVersion: 2,
+			Manifests:     []v1.Descriptor{*manifestDescriptor},
+		}
+		if err := i.writeIndexFileToTarball(tw, indexManifest); err != nil {
+			return err
+		}
+
+		// flush tarball contents to disk
+		if err := tw.Close(); err != nil {
+			return err
+		}
+
+		// TODO: create `oci-layout` file
+
+		return nil
 	}
-
-	// save blob of manifest
-	manifestDescriptor, err := i.writeManifestFileToTarball(tarball, configDescriptor)
-	if err != nil {
-		return err
-	}
-
-	// save index file
-	indexManifest := &v1.IndexManifest{
-		SchemaVersion: 2,
-		Manifests:     []v1.Descriptor{*manifestDescriptor},
-	}
-	if err := i.writeIndexFileToTarball(tarball, indexManifest); err != nil {
-		return err
-	}
-
-	// flush tarball contents to disk
-	if err := tarball.Close(); err != nil {
-		return err
-	}
-
-	// TODO: create `oci-layout` file
-
-	return nil
+	// TODO: handle case where `layoutImpl` is something unknown
 }
 
 func (i *Image) writeConfigFileToTarball(tw *tar.Writer) (*v1.Descriptor, error) {

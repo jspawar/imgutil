@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -24,6 +25,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
 	dockertypes "github.com/docker/docker/api/types"
 	dockercli "github.com/docker/docker/client"
@@ -275,7 +277,6 @@ func AssertImageTarIsValidOCI(t *testing.T, actualTarballPath string) {
 	AssertEq(t, len(index.Manifests), 1)
 	AssertEq(t, index.SchemaVersion, int64(2))
 
-	// TODO: add more mediatype assertions like everywhere
 	// validate manifest
 	manifestDescriptor := index.Manifests[0]
 	manifestDigest := manifestDescriptor.Digest
@@ -318,6 +319,55 @@ func AssertImageTarIsValidOCI(t *testing.T, actualTarballPath string) {
 	}
 
 	// validate `oci-layout` file exists
+}
+
+func AssertImageTarIsValidDocker(t *testing.T, actualTarballPath string, repoName string) {
+	file, err := os.Open(actualTarballPath)
+	AssertNil(t, err)
+
+	headers := make(map[string]*bytes.Buffer)
+	tr := tar.NewReader(file)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		AssertNil(t, err)
+
+		// TODO: skip loading layer tars?
+		buf := &bytes.Buffer{}
+		_, err = io.Copy(buf, tr)
+		AssertNil(t, err)
+
+		headers[hdr.Name] = buf
+	}
+
+	manifestBuf, exists := headers["manifest.json"]
+	AssertEq(t, exists, true)
+	AssertNotEq(t, manifestBuf, nil)
+
+	var manifests []tarball.Descriptor
+	AssertNil(t, json.NewDecoder(manifestBuf).Decode(&manifests))
+	AssertEq(t, len(manifests), 1)
+
+	// TODO: support implementation with multiple manifests?
+	manifest := manifests[0]
+	// TODO: support implementation with multiple repo tags
+	AssertEq(t, len(manifest.RepoTags), 1)
+	AssertEq(t, manifest.RepoTags[0], repoName)
+
+	// validate config file exists
+	configBuf, exists := headers[manifest.Config]
+	AssertEq(t, exists, true)
+	AssertNotEq(t, configBuf, nil)
+	// TODO: assert things about config file?
+
+	// validate layer tars all exist
+	for _, layer := range manifest.Layers {
+		_, exists := headers[layer]
+		AssertEq(t, exists, true)
+		// TODO: assert against anything else about layer?
+	}
 }
 
 // WindowsBaseLayer returns a minimal windows base layer.
