@@ -12,7 +12,6 @@ import (
 	"github.com/sclevine/spec"
 	"github.com/sclevine/spec/report"
 
-	"github.com/buildpacks/imgutil"
 	"github.com/buildpacks/imgutil/remote"
 	"github.com/buildpacks/imgutil/tarball"
 	h "github.com/buildpacks/imgutil/testhelpers"
@@ -766,129 +765,255 @@ func testImage(t *testing.T, when spec.G, it spec.S) {
 	// })
 
 	when("#Save", func() {
-		when("image exists", func() {
-			var tarballPath string
+		when("layout implementation is Docker", func() {
+			when("image exists", func() {
+				var tarballPath string
 
-			it.Before(func() {
-				// TODO: make helper for this?
-				tmpDir, err := ioutil.TempDir("", "imgutil-tests")
-				h.AssertNil(t, err)
+				it.Before(func() {
+					// TODO: make helper for this?
+					tmpDir, err := ioutil.TempDir("", "imgutil-tests")
+					h.AssertNil(t, err)
 
-				tarballPath = fmt.Sprintf("%s/image.tar", tmpDir)
+					tarballPath = fmt.Sprintf("%s/image.tar", tmpDir)
+				})
+
+				it.After(func() {
+					h.AssertNil(t, os.Remove(tarballPath))
+				})
+
+				it("is saved to the initially configured path on disk", func() {
+					img, err := tarball.NewImage(repoName, authn.DefaultKeychain, tarballPath, tarball.DockerImageLayout)
+					h.AssertNil(t, err)
+
+					// err = img.SetLabel("mykey", "newValue")
+					// h.AssertNil(t, err)
+
+					tarPath, err := h.CreateSingleFileLayerTar("/new-layer.txt", "new-layer", "linux")
+					h.AssertNil(t, err)
+					defer os.Remove(tarPath)
+					h.AssertNil(t, img.AddLayer(tarPath))
+
+					h.AssertNil(t, img.Save())
+
+					// TODO: add a test which asserts image tar is valid OCI image tar
+					h.AssertImageTarIsValidDocker(t, tarballPath, repoName)
+					// h.AssertImageTarIsValidOCI(t, tarballPath)
+
+					// TODO: all this #FromBaseImage should be tested in its own section
+					// identifier, err := img.Identifier()
+					// h.AssertNil(t, err)
+
+					// testImg, err := tarball.NewImage(
+					// 	"test",
+					// 	authn.DefaultKeychain,
+					// 	remote.FromBaseImage(identifier.String()),
+					// )
+					// h.AssertNil(t, err)
+
+					// remoteLabel, err := testImg.Label("mykey")
+					// h.AssertNil(t, err)
+
+					// h.AssertEq(t, remoteLabel, "newValue")
+				})
+
+				// it("zeroes all times and client specific fields", func() {
+				// 	img, err := tarball.NewImage(repoName, authn.DefaultKeychain, "/fake/path")
+				// 	h.AssertNil(t, err)
+
+				// 	tarPath, err := h.CreateSingleFileLayerTar("/new-layer.txt", "new-layer", "linux")
+				// 	h.AssertNil(t, err)
+				// 	defer os.Remove(tarPath)
+
+				// 	h.AssertNil(t, img.AddLayer(tarPath))
+
+				// 	h.AssertNil(t, img.Save())
+
+				// 	configFile := h.FetchManifestImageConfigFile(t, repoName)
+
+				// 	h.AssertEq(t, configFile.Created.Time, imgutil.NormalizedDateTime)
+				// 	h.AssertEq(t, configFile.Container, "")
+				// 	h.AssertEq(t, configFile.DockerVersion, "")
+
+				// 	h.AssertEq(t, len(configFile.History), len(configFile.RootFS.DiffIDs))
+				// 	for _, item := range configFile.History {
+				// 		h.AssertEq(t, item.Created.Unix(), imgutil.NormalizedDateTime.Unix())
+				// 	}
+				// })
 			})
 
-			it.After(func() {
-				h.AssertNil(t, os.Remove(tarballPath))
-			})
+			// when("additional names are provided", func() {
+			// 	var (
+			// 		repoName            = newTestImageName()
+			// 		additionalRepoNames = []string{
+			// 			repoName + ":" + h.RandString(5),
+			// 			newTestImageName(),
+			// 			newTestImageName(),
+			// 		}
+			// 		successfulRepoNames = append([]string{repoName}, additionalRepoNames...)
+			// 	)
 
-			// TODO: wrap in a context for layout implementation
-			it("is saved to the initially configured path on disk", func() {
-				img, err := tarball.NewImage(repoName, authn.DefaultKeychain, tarballPath, tarball.DockerImageLayout)
-				h.AssertNil(t, err)
+			// 	it("saves to multiple names", func() {
+			// 		image, err := remote.NewImage(repoName, authn.DefaultKeychain)
+			// 		h.AssertNil(t, err)
 
-				// err = img.SetLabel("mykey", "newValue")
-				// h.AssertNil(t, err)
+			// 		h.AssertNil(t, image.Save(additionalRepoNames...))
+			// 		for _, n := range successfulRepoNames {
+			// 			testImg, err := remote.NewImage(n, authn.DefaultKeychain)
+			// 			h.AssertNil(t, err)
+			// 			h.AssertEq(t, testImg.Found(), true)
+			// 		}
+			// 	})
 
-				tarPath, err := h.CreateSingleFileLayerTar("/new-layer.txt", "new-layer", "linux")
-				h.AssertNil(t, err)
-				defer os.Remove(tarPath)
-				h.AssertNil(t, img.AddLayer(tarPath))
+			// 	when("a single image name fails", func() {
+			// 		it("returns results with errors for those that failed", func() {
+			// 			failingName := newTestImageName() + ":🧨"
 
-				h.AssertNil(t, img.Save())
+			// 			image, err := remote.NewImage(repoName, authn.DefaultKeychain)
+			// 			h.AssertNil(t, err)
 
-				// TODO: add a test which asserts image tar is valid OCI image tar
-				h.AssertImageTarIsValidDocker(t, tarballPath, repoName)
-				// h.AssertImageTarIsValidOCI(t, tarballPath)
+			// 			err = image.Save(append([]string{failingName}, additionalRepoNames...)...)
+			// 			h.AssertError(t, err, fmt.Sprintf("failed to write image to the following tags: [%s:", failingName))
 
-				// TODO: all this #FromBaseImage should be tested in its own section
-				// identifier, err := img.Identifier()
-				// h.AssertNil(t, err)
+			// 			// check all but failing name
+			// 			saveErr, ok := err.(imgutil.SaveError)
+			// 			h.AssertEq(t, ok, true)
+			// 			h.AssertEq(t, len(saveErr.Errors), 1)
+			// 			h.AssertEq(t, saveErr.Errors[0].ImageName, failingName)
+			// 			h.AssertError(t, saveErr.Errors[0].Cause, "could not parse reference")
 
-				// testImg, err := tarball.NewImage(
-				// 	"test",
-				// 	authn.DefaultKeychain,
-				// 	remote.FromBaseImage(identifier.String()),
-				// )
-				// h.AssertNil(t, err)
-
-				// remoteLabel, err := testImg.Label("mykey")
-				// h.AssertNil(t, err)
-
-				// h.AssertEq(t, remoteLabel, "newValue")
-			})
-
-			// it("zeroes all times and client specific fields", func() {
-			// 	img, err := tarball.NewImage(repoName, authn.DefaultKeychain, "/fake/path")
-			// 	h.AssertNil(t, err)
-
-			// 	tarPath, err := h.CreateSingleFileLayerTar("/new-layer.txt", "new-layer", "linux")
-			// 	h.AssertNil(t, err)
-			// 	defer os.Remove(tarPath)
-
-			// 	h.AssertNil(t, img.AddLayer(tarPath))
-
-			// 	h.AssertNil(t, img.Save())
-
-			// 	configFile := h.FetchManifestImageConfigFile(t, repoName)
-
-			// 	h.AssertEq(t, configFile.Created.Time, imgutil.NormalizedDateTime)
-			// 	h.AssertEq(t, configFile.Container, "")
-			// 	h.AssertEq(t, configFile.DockerVersion, "")
-
-			// 	h.AssertEq(t, len(configFile.History), len(configFile.RootFS.DiffIDs))
-			// 	for _, item := range configFile.History {
-			// 		h.AssertEq(t, item.Created.Unix(), imgutil.NormalizedDateTime.Unix())
-			// 	}
+			// 			for _, n := range successfulRepoNames {
+			// 				testImg, err := remote.NewImage(n, authn.DefaultKeychain)
+			// 				h.AssertNil(t, err)
+			// 				h.AssertEq(t, testImg.Found(), true)
+			// 			}
+			// 		})
+			// 	})
 			// })
 		})
 
-		when("additional names are provided", func() {
-			var (
-				repoName            = newTestImageName()
-				additionalRepoNames = []string{
-					repoName + ":" + h.RandString(5),
-					newTestImageName(),
-					newTestImageName(),
-				}
-				successfulRepoNames = append([]string{repoName}, additionalRepoNames...)
-			)
+		when("layout implementation is OCI", func() {
+			when("image exists", func() {
+				var tarballPath string
 
-			it("saves to multiple names", func() {
-				image, err := remote.NewImage(repoName, authn.DefaultKeychain)
-				h.AssertNil(t, err)
-
-				h.AssertNil(t, image.Save(additionalRepoNames...))
-				for _, n := range successfulRepoNames {
-					testImg, err := remote.NewImage(n, authn.DefaultKeychain)
-					h.AssertNil(t, err)
-					h.AssertEq(t, testImg.Found(), true)
-				}
-			})
-
-			when("a single image name fails", func() {
-				it("returns results with errors for those that failed", func() {
-					failingName := newTestImageName() + ":🧨"
-
-					image, err := remote.NewImage(repoName, authn.DefaultKeychain)
+				it.Before(func() {
+					// TODO: make helper for this?
+					tmpDir, err := ioutil.TempDir("", "imgutil-tests")
 					h.AssertNil(t, err)
 
-					err = image.Save(append([]string{failingName}, additionalRepoNames...)...)
-					h.AssertError(t, err, fmt.Sprintf("failed to write image to the following tags: [%s:", failingName))
-
-					// check all but failing name
-					saveErr, ok := err.(imgutil.SaveError)
-					h.AssertEq(t, ok, true)
-					h.AssertEq(t, len(saveErr.Errors), 1)
-					h.AssertEq(t, saveErr.Errors[0].ImageName, failingName)
-					h.AssertError(t, saveErr.Errors[0].Cause, "could not parse reference")
-
-					for _, n := range successfulRepoNames {
-						testImg, err := remote.NewImage(n, authn.DefaultKeychain)
-						h.AssertNil(t, err)
-						h.AssertEq(t, testImg.Found(), true)
-					}
+					tarballPath = fmt.Sprintf("%s/image.tar", tmpDir)
 				})
+
+				it.After(func() {
+					h.AssertNil(t, os.Remove(tarballPath))
+				})
+
+				// TODO: wrap in a context for layout implementation
+				it("is saved to the initially configured path on disk", func() {
+					img, err := tarball.NewImage(repoName, authn.DefaultKeychain, tarballPath, tarball.OCIImageLayout)
+					h.AssertNil(t, err)
+
+					// err = img.SetLabel("mykey", "newValue")
+					// h.AssertNil(t, err)
+
+					tarPath, err := h.CreateSingleFileLayerTar("/new-layer.txt", "new-layer", "linux")
+					h.AssertNil(t, err)
+					defer os.Remove(tarPath)
+					h.AssertNil(t, img.AddLayer(tarPath))
+
+					h.AssertNil(t, img.Save())
+
+					h.AssertImageTarIsValidOCI(t, tarballPath)
+
+					// TODO: all this #FromBaseImage should be tested in its own section
+					// identifier, err := img.Identifier()
+					// h.AssertNil(t, err)
+
+					// testImg, err := tarball.NewImage(
+					// 	"test",
+					// 	authn.DefaultKeychain,
+					// 	remote.FromBaseImage(identifier.String()),
+					// )
+					// h.AssertNil(t, err)
+
+					// remoteLabel, err := testImg.Label("mykey")
+					// h.AssertNil(t, err)
+
+					// h.AssertEq(t, remoteLabel, "newValue")
+				})
+
+				// it("zeroes all times and client specific fields", func() {
+				// 	img, err := tarball.NewImage(repoName, authn.DefaultKeychain, "/fake/path")
+				// 	h.AssertNil(t, err)
+
+				// 	tarPath, err := h.CreateSingleFileLayerTar("/new-layer.txt", "new-layer", "linux")
+				// 	h.AssertNil(t, err)
+				// 	defer os.Remove(tarPath)
+
+				// 	h.AssertNil(t, img.AddLayer(tarPath))
+
+				// 	h.AssertNil(t, img.Save())
+
+				// 	configFile := h.FetchManifestImageConfigFile(t, repoName)
+
+				// 	h.AssertEq(t, configFile.Created.Time, imgutil.NormalizedDateTime)
+				// 	h.AssertEq(t, configFile.Container, "")
+				// 	h.AssertEq(t, configFile.DockerVersion, "")
+
+				// 	h.AssertEq(t, len(configFile.History), len(configFile.RootFS.DiffIDs))
+				// 	for _, item := range configFile.History {
+				// 		h.AssertEq(t, item.Created.Unix(), imgutil.NormalizedDateTime.Unix())
+				// 	}
+				// })
 			})
+
+			// when("additional names are provided", func() {
+			// 	var (
+			// 		repoName            = newTestImageName()
+			// 		additionalRepoNames = []string{
+			// 			repoName + ":" + h.RandString(5),
+			// 			newTestImageName(),
+			// 			newTestImageName(),
+			// 		}
+			// 		successfulRepoNames = append([]string{repoName}, additionalRepoNames...)
+			// 	)
+
+			// 	it("saves to multiple names", func() {
+			// 		image, err := remote.NewImage(repoName, authn.DefaultKeychain)
+			// 		h.AssertNil(t, err)
+
+			// 		h.AssertNil(t, image.Save(additionalRepoNames...))
+			// 		for _, n := range successfulRepoNames {
+			// 			testImg, err := remote.NewImage(n, authn.DefaultKeychain)
+			// 			h.AssertNil(t, err)
+			// 			h.AssertEq(t, testImg.Found(), true)
+			// 		}
+			// 	})
+
+			// 	when("a single image name fails", func() {
+			// 		it("returns results with errors for those that failed", func() {
+			// 			failingName := newTestImageName() + ":🧨"
+
+			// 			image, err := remote.NewImage(repoName, authn.DefaultKeychain)
+			// 			h.AssertNil(t, err)
+
+			// 			err = image.Save(append([]string{failingName}, additionalRepoNames...)...)
+			// 			h.AssertError(t, err, fmt.Sprintf("failed to write image to the following tags: [%s:", failingName))
+
+			// 			// check all but failing name
+			// 			saveErr, ok := err.(imgutil.SaveError)
+			// 			h.AssertEq(t, ok, true)
+			// 			h.AssertEq(t, len(saveErr.Errors), 1)
+			// 			h.AssertEq(t, saveErr.Errors[0].ImageName, failingName)
+			// 			h.AssertError(t, saveErr.Errors[0].Cause, "could not parse reference")
+
+			// 			for _, n := range successfulRepoNames {
+			// 				testImg, err := remote.NewImage(n, authn.DefaultKeychain)
+			// 				h.AssertNil(t, err)
+			// 				h.AssertEq(t, testImg.Found(), true)
+			// 			}
+			// 		})
+			// 	})
+			// })
 		})
 	})
 
